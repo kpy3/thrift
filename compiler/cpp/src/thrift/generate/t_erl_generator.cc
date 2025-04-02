@@ -58,6 +58,7 @@ public:
     maps_ = false;
     export_lines_first_ = true;
     export_types_lines_first_ = true;
+    nominal_types_ = false;
 
     for( iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
       if( iter->first.compare("legacynames") == 0) {
@@ -68,6 +69,8 @@ public:
         delimiter_ = iter->second;
       } else if( iter->first.compare("app_prefix") == 0) {
         app_prefix_ = iter->second;
+      } else if( iter->first.compare("nominal_types") == 0) {
+        nominal_types_ = true;
       } else {
         throw "unknown option erl:" + iter->first;
       }
@@ -187,6 +190,9 @@ private:
 
   /* used to avoid module name clashes for different applications */
   std::string app_prefix_;
+
+  /* if true declare types as nominal (Erlang 28+) */
+  bool nominal_types_;
 
   /**
    * add function to export list
@@ -1290,4 +1296,5 @@ THRIFT_REGISTER_GENERATOR(
     "    legacynames:     Output files retain naming conventions of Thrift 0.9.1 and earlier.\n"
     "    delimiter=       Delimiter between namespace prefix and record name. Default is '.'.\n"
     "    app_prefix=      Application prefix for generated Erlang files.\n"
-    "    maps:            Generate maps instead of dicts.\n")
+    "    maps:            Generate maps instead of dicts.\n"
+    "    nominal_types:   Declare types as nominal.\n")
