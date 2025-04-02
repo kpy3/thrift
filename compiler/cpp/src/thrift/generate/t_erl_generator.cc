@@ -59,6 +59,7 @@ public:
     export_lines_first_ = true;
     export_types_lines_first_ = true;
     nominal_types_ = false;
+    force_binary_ = false;
 
     for( iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
       if( iter->first.compare("legacynames") == 0) {
@@ -71,6 +72,8 @@ public:
         app_prefix_ = iter->second;
       } else if( iter->first.compare("nominal_types") == 0) {
         nominal_types_ = true;
+      } else if( iter->first.compare("force_binary") == 0) {
+        force_binary_ = true;
       } else {
         throw "unknown option erl:" + iter->first;
       }
@@ -149,6 +152,7 @@ public:
   std::string argument_list(t_struct* tstruct);
   std::string type_to_enum(t_type* ttype);
   std::string type_module(t_type* ttype);
+  std::string build_string_type();
 
   std::string make_safe_for_module_name(std::string in) {
     if (legacy_names_) {
@@ -193,6 +197,9 @@ private:
 
   /* if true declare types as nominal (Erlang 28+) */
   bool nominal_types_;
+
+  /* if true force map string to binary type only */
+  bool force_binary_;
 
   /**
    * add function to export list
@@ -735,7 +742,7 @@ string t_erl_generator::render_member_type(t_field* field) {
     t_base_type::t_base tbase = ((t_base_type*)type)->get_base();
     switch (tbase) {
     case t_base_type::TYPE_STRING:
-      return "string() | binary()";
+      return build_string_type();
     case t_base_type::TYPE_BOOL:
       return "boolean()";
     case t_base_type::TYPE_I8:
@@ -764,6 +771,14 @@ string t_erl_generator::render_member_type(t_field* field) {
     return "list()";
   } else {
     throw "compiler error: unsupported type " + type->get_name();
+  }
+}
+
+string t_erl_generator::build_string_type() {
+  if (force_binary_) {
+    return "binary()";
+  } else {
+    return "string() | binary()";
   }
 }
 
@@ -1297,4 +1312,5 @@ THRIFT_REGISTER_GENERATOR(
     "    delimiter=       Delimiter between namespace prefix and record name. Default is '.'.\n"
     "    app_prefix=      Application prefix for generated Erlang files.\n"
     "    maps:            Generate maps instead of dicts.\n"
-    "    nominal_types:   Declare types as nominal.\n")
+    "    nominal_types:   Declare types as nominal.\n"
+    "    force_binary:    Force map string to binary only.\n")
