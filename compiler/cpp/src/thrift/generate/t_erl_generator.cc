@@ -59,7 +59,6 @@ public:
     export_lines_first_ = true;
     export_types_lines_first_ = true;
     nominal_types_ = false;
-    force_binary_ = false;
 
     for( iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
       if( iter->first.compare("legacynames") == 0) {
@@ -72,8 +71,6 @@ public:
         app_prefix_ = iter->second;
       } else if( iter->first.compare("nominal_types") == 0) {
         nominal_types_ = true;
-      } else if( iter->first.compare("force_binary") == 0) {
-        force_binary_ = true;
       } else {
         throw "unknown option erl:" + iter->first;
       }
@@ -111,6 +108,7 @@ public:
   std::string render_default_value(t_field* field);
   std::string render_const_value(t_type* type, t_const_value* value);
   std::string render_type_term(t_type* ttype, bool expand_structs, bool extended_info = false);
+  std::string render_typedef_term(t_type* ttype);
 
   /**
    * Struct generation code
@@ -152,7 +150,7 @@ public:
   std::string argument_list(t_struct* tstruct);
   std::string type_to_enum(t_type* ttype);
   std::string type_module(t_type* ttype);
-  std::string build_string_type();
+  std::string render_string_type();
 
   std::string make_safe_for_module_name(std::string in) {
     if (legacy_names_) {
@@ -195,11 +193,8 @@ private:
   /* used to avoid module name clashes for different applications */
   std::string app_prefix_;
 
-  /* if true declare types as nominal (Erlang 28+) */
+  /* if true declare base types as nominal (Erlang 28+) */
   bool nominal_types_;
-
-  /* if true force map string to binary type only */
-  bool force_binary_;
 
   /**
    * add function to export list
@@ -455,9 +450,14 @@ void t_erl_generator::generate_type_metadata(std::string function_name, vector<s
  * @param ttypedef The type definition
  */
 void t_erl_generator::generate_typedef(t_typedef* ttypedef) {
-  (void)ttypedef;
+  t_type* type = get_true_type(ttypedef->get_type());
+  if (nominal_types_) {
+    f_types_hrl_file_ << "-nominal ";
+  } else {
+    f_types_hrl_file_ << "-type ";
+  }
+  f_types_hrl_file_ << type_name(ttypedef) << "() :: " << render_typedef_term(type) << ".\n" << "\n";
 }
-
 
 void t_erl_generator::generate_const_function(t_const* tconst, ostringstream& exports, ostringstream& functions) {
   t_type* type = get_true_type(tconst->get_type());
@@ -728,7 +728,7 @@ string t_erl_generator::render_default_value(t_field* field) {
       return "dict:new()";
     }
   } else if (type->is_set()) {
-    return "sets:new()";
+    return "sets:new()"; // TODO добавить sets_v2, ordsets флагом set=v1|v2|ordset
   } else if (type->is_list()) {
     return "[]";
   } else {
@@ -737,12 +737,16 @@ string t_erl_generator::render_default_value(t_field* field) {
 }
 
 string t_erl_generator::render_member_type(t_field* field) {
+  // TODO Логика должна быть другой (для nominal_types):
+  // проверяем type->is_typedef()
+  // если возвращает истину - возвращаем тип для typedef
+  // если ложь - логика ниже
   t_type* type = get_true_type(field->get_type());
   if (type->is_base_type()) {
     t_base_type::t_base tbase = ((t_base_type*)type)->get_base();
     switch (tbase) {
     case t_base_type::TYPE_STRING:
-      return build_string_type();
+      return "string() | binary()";
     case t_base_type::TYPE_BOOL:
       return "boolean()";
     case t_base_type::TYPE_I8:
@@ -761,24 +765,16 @@ string t_erl_generator::render_member_type(t_field* field) {
     return type_name(type) + "()";
   } else if (type->is_map()) {
     if (maps_) {
-      return "map()";
+      return "maps:map()";
     } else {
       return "dict:dict()";
     }
   } else if (type->is_set()) {
-      return "sets:set()";
+      return "sets:set()"; // TODO добавить sets_v2, ordsets флагом set=v1|v2|ordset
   } else if (type->is_list()) {
-    return "list()";
+    return "lasts:list()";
   } else {
     throw "compiler error: unsupported type " + type->get_name();
-  }
-}
-
-string t_erl_generator::build_string_type() {
-  if (force_binary_) {
-    return "binary()";
-  } else {
-    return "string() | binary()";
   }
 }
 
@@ -1296,6 +1292,44 @@ std::string t_erl_generator::render_type_term(t_type* type,
   throw "INVALID TYPE IN type_to_enum: " + type->get_name();
 }
 
+string t_erl_generator::render_typedef_term(t_type* ttype) {
+  if (ttype->is_base_type()) {
+    t_base_type::t_base tbase = ((t_base_type*)ttype)->get_base();
+    switch (tbase) {
+    case t_base_type::TYPE_STRING:
+      return "string() | binary()";
+    case t_base_type::TYPE_BOOL:
+      return "boolean()";
+    case t_base_type::TYPE_I8:
+    case t_base_type::TYPE_I16:
+    case t_base_type::TYPE_I32:
+    case t_base_type::TYPE_I64:
+      return "integer()";
+    case t_base_type::TYPE_DOUBLE:
+      return "float()";
+    default:
+      throw "compiler error: unsupported base type " + t_base_type::t_base_name(tbase);
+    }
+  }
+   else if (ttype->is_enum()) {
+    return "integer()"; // TODO Fix
+  } else if (ttype->is_struct() || ttype->is_xception()) {
+    return type_name(ttype) + "()";
+  } else if (ttype->is_map()) {
+    if (maps_) {
+      return "maps:map()";
+    } else {
+      return "dict:dict()";
+    }
+  } else if (ttype->is_set()) {
+    return "sets:set()";
+  } else if (ttype->is_list()) {
+    return "lists:list()";
+  } else {
+    throw "compiler error: unsupported type " + ttype->get_name();
+  }
+}
+
 std::string t_erl_generator::type_module(t_type* ttype) {
   return make_safe_for_module_name(ttype->get_program()->get_name()) + "_types";
 }
@@ -1312,5 +1346,4 @@ THRIFT_REGISTER_GENERATOR(
     "    delimiter=       Delimiter between namespace prefix and record name. Default is '.'.\n"
     "    app_prefix=      Application prefix for generated Erlang files.\n"
     "    maps:            Generate maps instead of dicts.\n"
-    "    nominal_types:   Declare types as nominal.\n"
-    "    force_binary:    Force map string to binary only.\n")
+    "    nominal_types:   Declare types as nominal.\n")
